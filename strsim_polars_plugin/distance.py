@@ -18,3 +18,12 @@ def damerau_levenshtein(expr: IntoExprColumn, other: IntoExprColumn) -> pl.Expr:
         function_name="damerau_levenshtein",
         is_elementwise=True,
     )
+
+
+def normalized_damerau_levenshtein(expr: IntoExprColumn, other: IntoExprColumn) -> pl.Expr:
+    return register_plugin_function(
+        plugin_path=LIB,
+        args=[expr, other],
+        function_name="normalized_damerau_levenshtein",
+        is_elementwise=True,
+    )
