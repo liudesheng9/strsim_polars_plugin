@@ -27,3 +27,21 @@ def normalized_damerau_levenshtein(expr: IntoExprColumn, other: IntoExprColumn) 
         function_name="normalized_damerau_levenshtein",
         is_elementwise=True,
     )
+
+
+def partial_damerau_levenshtein(expr: IntoExprColumn, other: IntoExprColumn) -> pl.Expr:
+    return register_plugin_function(
+        plugin_path=LIB,
+        args=[expr, other],
+        function_name="partial_damerau_levenshtein",
+        is_elementwise=True,
+    )
+
+
+def partial_normalized_damerau_levenshtein(expr: IntoExprColumn, other: IntoExprColumn) -> pl.Expr:
+    return register_plugin_function(
+        plugin_path=LIB,
+        args=[expr, other],
+        function_name="partial_normalized_damerau_levenshtein",
+        is_elementwise=True,
+    )
