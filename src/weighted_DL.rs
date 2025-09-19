@@ -165,7 +165,12 @@ fn normalized_geometric_descending_weights(n: usize, k: f64) -> Vec<f64> {
 /// normalize using a shared scale based on `max(len(a), len(b))` and then
 /// slice the weights for each string. This avoids making early-character
 /// weights larger solely because one string is longer.
-pub fn normalized_descending_weighted_damerau_levenshtein(a: &str, b: &str, k: f64) -> f64 {
+pub fn normalized_descending_weighted_damerau_levenshtein(
+    a: &str,
+    b: &str,
+    k: f64,
+    normalized: bool,
+) -> f64 {
     let a_chars: Vec<char> = a.chars().collect();
     let b_chars: Vec<char> = b.chars().collect();
 
@@ -173,6 +178,12 @@ pub fn normalized_descending_weighted_damerau_levenshtein(a: &str, b: &str, k: f
     let shared_weights = normalized_geometric_descending_weights(max_len, k);
     let weight_a = shared_weights[0..a_chars.len()].to_vec();
     let weight_b = shared_weights[0..b_chars.len()].to_vec();
-
-    generic_weighted_damerau_levenshtein(&a_chars, &b_chars, &weight_a, &weight_b)
+    match normalized {
+        true => {
+            let result =
+                generic_weighted_damerau_levenshtein(&a_chars, &b_chars, &weight_a, &weight_b);
+            result / max_len as f64
+        }
+        false => generic_weighted_damerau_levenshtein(&a_chars, &b_chars, &weight_a, &weight_b),
+    }
 }

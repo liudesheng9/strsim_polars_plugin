@@ -23,22 +23,34 @@ pub(super) fn native_normalized_damerau_levenshtein(a: &str, b: &str) -> f64 {
     strsim::normalized_damerau_levenshtein(a, b) as f64
 }
 
-fn default_wgr() -> f64 {
-    1.0
-}
 #[derive(Deserialize)]
 pub struct WeightedDLKwargs {
-    #[serde(default = "default_wgr")]
+    #[serde(default = "default_weighted_geometric_ratio")]
     weighted_geometric_ratio: f64,
+    #[serde(default = "default_normalized")]
+    normalized: bool,
+}
+
+fn default_weighted_geometric_ratio() -> f64 {
+    1.0
+}
+
+fn default_normalized() -> bool {
+    false
 }
 
 pub(super) fn native_geometric_weighted_damerau_levenshtein(
     a: &str,
     b: &str,
     weighted_geometric_ratio: f64,
+    normalized: bool,
 ) -> f64 {
-    weighted_DL::normalized_descending_weighted_damerau_levenshtein(a, b, weighted_geometric_ratio)
-        as f64
+    weighted_DL::normalized_descending_weighted_damerau_levenshtein(
+        a,
+        b,
+        weighted_geometric_ratio,
+        normalized,
+    ) as f64
 }
 
 fn get_all_substrings<'a>(s: &'a str, k: usize) -> Result<Vec<&'a str>, String> {
@@ -153,7 +165,12 @@ pub(super) fn parallel_apply_gwdl(
     }
     if context.parallel() {
         let out: ChunkedArray<Float64Type> = arity::binary_elementwise_values(a, b, |s1, s2| {
-            native_geometric_weighted_damerau_levenshtein(s1, s2, kwargs.weighted_geometric_ratio)
+            native_geometric_weighted_damerau_levenshtein(
+                s1,
+                s2,
+                kwargs.weighted_geometric_ratio,
+                kwargs.normalized,
+            )
         });
         Ok(out.into_series())
     } else {
@@ -171,6 +188,7 @@ pub(super) fn parallel_apply_gwdl(
                                 a,
                                 b,
                                 kwargs.weighted_geometric_ratio,
+                                kwargs.normalized,
                             )
                         })
                     };
