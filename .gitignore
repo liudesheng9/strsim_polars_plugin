@@ -1,3 +1,4 @@
 /target
 *.pyd
 *.pyc
+*.so
