@@ -1,2 +1,3 @@
 /target
 strsim_polars_plugin/strsim_polars_plugin.pyd
+strsim_polars_plugin/__pycache__/distance.cpython-311.pyc
