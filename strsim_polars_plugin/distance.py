@@ -45,3 +45,13 @@ def partial_normalized_damerau_levenshtein(expr: IntoExprColumn, other: IntoExpr
         function_name="partial_normalized_damerau_levenshtein",
         is_elementwise=True,
     )
+
+
+def geometric_weighted_damerau_levenshtein(expr: IntoExprColumn, other: IntoExprColumn, weighted_geometric_ratio: float) -> pl.Expr:
+    return register_plugin_function(
+        plugin_path=LIB,
+        args=[expr, other],
+        function_name="geometric_weighted_damerau_levenshtein",
+        is_elementwise=True,
+        kwargs={"weighted_geometric_ratio": weighted_geometric_ratio},
+    )

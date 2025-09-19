@@ -1,19 +1,14 @@
+use crate::apply_utils::parallel_apply;
+use crate::weighted_DL;
 use polars::prelude::*;
-use polars_core::datatypes::PolarsNumericType;
 use polars_core::datatypes::{Float64Type, Int64Type};
 use pyo3_polars::derive::polars_expr;
 use pyo3_polars::derive::CallerContext;
 use pyo3_polars::export::polars_core::POOL;
 use rayon::prelude::*;
+use serde::Deserialize;
 
 pub(super) fn native_damerau_levenshtein(a: &str, b: &str) -> i64 {
-    let count_a = a.chars().count();
-    let count_b = b.chars().count();
-
-    if count_a == 0 || count_b == 0 {
-        return 0;
-    }
-
     strsim::damerau_levenshtein(a, b) as i64
 }
 
@@ -26,6 +21,24 @@ pub(super) fn native_normalized_damerau_levenshtein(a: &str, b: &str) -> f64 {
     }
 
     strsim::normalized_damerau_levenshtein(a, b) as f64
+}
+
+fn default_wgr() -> f64 {
+    1.0
+}
+#[derive(Deserialize)]
+pub struct WeightedDLKwargs {
+    #[serde(default = "default_wgr")]
+    weighted_geometric_ratio: f64,
+}
+
+pub(super) fn native_geometric_weighted_damerau_levenshtein(
+    a: &str,
+    b: &str,
+    weighted_geometric_ratio: f64,
+) -> f64 {
+    weighted_DL::normalized_descending_weighted_damerau_levenshtein(a, b, weighted_geometric_ratio)
+        as f64
 }
 
 fn get_all_substrings<'a>(s: &'a str, k: usize) -> Result<Vec<&'a str>, String> {
@@ -126,15 +139,11 @@ fn split_offsets(len: usize, n: usize) -> Vec<(usize, usize)> {
     }
 }
 
-pub fn parallel_apply<F, Out>(
+pub(super) fn parallel_apply_gwdl(
     inputs: &[Series],
     context: CallerContext,
-    native_fn: F,
-) -> PolarsResult<Series>
-where
-    F: Fn(&str, &str) -> Out::Native + Sync + Send,
-    Out: PolarsNumericType,
-{
+    kwargs: WeightedDLKwargs,
+) -> PolarsResult<Series> {
     let a = inputs[0].str()?;
     let b = inputs[1].str()?;
     if a.len() != b.len() {
@@ -143,7 +152,9 @@ where
         ));
     }
     if context.parallel() {
-        let out: ChunkedArray<Out> = arity::binary_elementwise_values(a, b, native_fn);
+        let out: ChunkedArray<Float64Type> = arity::binary_elementwise_values(a, b, |s1, s2| {
+            native_geometric_weighted_damerau_levenshtein(s1, s2, kwargs.weighted_geometric_ratio)
+        });
         Ok(out.into_series())
     } else {
         POOL.install(|| {
@@ -152,18 +163,25 @@ where
             let chunks: Vec<_> = splits
                 .into_par_iter()
                 .map(|(offset, len)| {
-                    let out: ChunkedArray<Out> = {
+                    let out: ChunkedArray<Float64Type> = {
                         let a = a.slice(offset as i64, len);
                         let b = b.slice(offset as i64, len);
-                        arity::binary_elementwise_values(&a, &b, |a, b| native_fn(a, b))
+                        arity::binary_elementwise_values(&a, &b, |a, b| {
+                            native_geometric_weighted_damerau_levenshtein(
+                                a,
+                                b,
+                                kwargs.weighted_geometric_ratio,
+                            )
+                        })
                     };
                     out.downcast_iter().cloned().collect::<Vec<_>>()
                 })
                 .collect();
-            Ok(
-                ChunkedArray::<Out>::from_chunk_iter("".into(), chunks.into_iter().flatten())
-                    .into_series(),
+            Ok(ChunkedArray::<Float64Type>::from_chunk_iter(
+                "".into(),
+                chunks.into_iter().flatten(),
             )
+            .into_series())
         })
     }
 }
@@ -201,4 +219,13 @@ fn partial_normalized_damerau_levenshtein(
         context,
         native_partial_normalized_damerau_levenshtein,
     )
+}
+
+#[polars_expr(output_type=Float64)]
+fn geometric_weighted_damerau_levenshtein(
+    inputs: &[Series],
+    context: CallerContext,
+    kwargs: WeightedDLKwargs,
+) -> PolarsResult<Series> {
+    parallel_apply_gwdl(inputs, context, kwargs)
 }
