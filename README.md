@@ -10,3 +10,4 @@
 |:---|:---|:---|
 |damerau_levenshtein | &#x2705; | &#x2705; |
 |normalized_damerau_levenshtein | &#x2705; | &#x2705; |
+| generic_weighted_damerau_levenshtein | - | &#x2705; |
