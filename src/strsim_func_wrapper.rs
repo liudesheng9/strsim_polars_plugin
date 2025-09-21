@@ -4,8 +4,7 @@ use polars::prelude::*;
 use polars_core::datatypes::{Float64Type, Int64Type};
 use pyo3_polars::derive::polars_expr;
 use pyo3_polars::derive::CallerContext;
-use pyo3_polars::export::polars_core::POOL;
-use rayon::prelude::*;
+
 use serde::Deserialize;
 
 pub(super) fn native_damerau_levenshtein(a: &str, b: &str) -> i64 {
@@ -31,12 +30,26 @@ pub struct WeightedDLKwargs {
     normalized: bool,
 }
 
+#[derive(Deserialize)]
+pub struct WeightedDLByWordsKwargs {
+    #[serde(default = "default_weighted_geometric_ratio")]
+    weighted_geometric_ratio: f64,
+    #[serde(default = "default_normalized")]
+    normalized: bool,
+    #[serde(default = "default_agg")]
+    agg: String,
+}
+
 fn default_weighted_geometric_ratio() -> f64 {
     1.0
 }
 
 fn default_normalized() -> bool {
     false
+}
+
+fn default_agg() -> String {
+    "mean".to_string()
 }
 
 pub(super) fn native_geometric_weighted_damerau_levenshtein(
@@ -51,6 +64,27 @@ pub(super) fn native_geometric_weighted_damerau_levenshtein(
         weighted_geometric_ratio,
         normalized,
     ) as f64
+}
+
+pub(super) fn native_geometric_weighted_damerau_levenshtein_bywords(
+    a: &str,
+    b: &str,
+    weighted_geometric_ratio: f64,
+    normalized: bool,
+    agg: &str,
+) -> f64 {
+    let agg_method = match agg {
+        "max" => weighted_DL::ByWordsAggregation::Max,
+        "min" => weighted_DL::ByWordsAggregation::Min,
+        _ => weighted_DL::ByWordsAggregation::Mean,
+    };
+    weighted_DL::normalized_descending_weighted_damerau_levenshtein_bywords(
+        a,
+        b,
+        weighted_geometric_ratio,
+        normalized,
+        agg_method,
+    )
 }
 
 fn get_all_substrings<'a>(s: &'a str, k: usize) -> Result<Vec<&'a str>, String> {
@@ -131,77 +165,35 @@ pub(super) fn native_partial_normalized_damerau_levenshtein(a: &str, b: &str) ->
         .unwrap()
 }
 
-fn split_offsets(len: usize, n: usize) -> Vec<(usize, usize)> {
-    if n == 1 {
-        vec![(0, len)]
-    } else {
-        let chunk_size = len / n;
-
-        (0..n)
-            .map(|partition| {
-                let offset = partition * chunk_size;
-                let len = if partition == (n - 1) {
-                    len - offset
-                } else {
-                    chunk_size
-                };
-                (offset, len)
-            })
-            .collect()
-    }
-}
-
 pub(super) fn parallel_apply_gwdl(
     inputs: &[Series],
     context: CallerContext,
     kwargs: WeightedDLKwargs,
 ) -> PolarsResult<Series> {
-    let a = inputs[0].str()?;
-    let b = inputs[1].str()?;
-    if a.len() != b.len() {
-        return Err(PolarsError::ShapeMismatch(
-            "Inputs must have the same length, or one of them must be a Utf8 literal.".into(),
-        ));
-    }
-    if context.parallel() {
-        let out: ChunkedArray<Float64Type> = arity::binary_elementwise_values(a, b, |s1, s2| {
-            native_geometric_weighted_damerau_levenshtein(
-                s1,
-                s2,
-                kwargs.weighted_geometric_ratio,
-                kwargs.normalized,
-            )
-        });
-        Ok(out.into_series())
-    } else {
-        POOL.install(|| {
-            let splits = split_offsets(a.len(), POOL.current_num_threads());
+    let weighted_geometric_ratio = kwargs.weighted_geometric_ratio;
+    let normalized = kwargs.normalized;
+    parallel_apply::<_, Float64Type>(inputs, context, move |s1, s2| {
+        native_geometric_weighted_damerau_levenshtein(s1, s2, weighted_geometric_ratio, normalized)
+    })
+}
 
-            let chunks: Vec<_> = splits
-                .into_par_iter()
-                .map(|(offset, len)| {
-                    let out: ChunkedArray<Float64Type> = {
-                        let a = a.slice(offset as i64, len);
-                        let b = b.slice(offset as i64, len);
-                        arity::binary_elementwise_values(&a, &b, |a, b| {
-                            native_geometric_weighted_damerau_levenshtein(
-                                a,
-                                b,
-                                kwargs.weighted_geometric_ratio,
-                                kwargs.normalized,
-                            )
-                        })
-                    };
-                    out.downcast_iter().cloned().collect::<Vec<_>>()
-                })
-                .collect();
-            Ok(ChunkedArray::<Float64Type>::from_chunk_iter(
-                "".into(),
-                chunks.into_iter().flatten(),
-            )
-            .into_series())
-        })
-    }
+pub(super) fn parallel_apply_gwdl_bywords(
+    inputs: &[Series],
+    context: CallerContext,
+    kwargs: WeightedDLByWordsKwargs,
+) -> PolarsResult<Series> {
+    let weighted_geometric_ratio = kwargs.weighted_geometric_ratio;
+    let normalized = kwargs.normalized;
+    let agg = kwargs.agg;
+    parallel_apply::<_, Float64Type>(inputs, context, move |s1, s2| {
+        native_geometric_weighted_damerau_levenshtein_bywords(
+            s1,
+            s2,
+            weighted_geometric_ratio,
+            normalized,
+            &agg,
+        )
+    })
 }
 
 // Workaround for arrow::ffi module resolution issue
@@ -246,4 +238,13 @@ fn geometric_weighted_damerau_levenshtein(
     kwargs: WeightedDLKwargs,
 ) -> PolarsResult<Series> {
     parallel_apply_gwdl(inputs, context, kwargs)
+}
+
+#[polars_expr(output_type=Float64)]
+fn geometric_weighted_damerau_levenshtein_bywords(
+    inputs: &[Series],
+    context: CallerContext,
+    kwargs: WeightedDLByWordsKwargs,
+) -> PolarsResult<Series> {
+    parallel_apply_gwdl_bywords(inputs, context, kwargs)
 }

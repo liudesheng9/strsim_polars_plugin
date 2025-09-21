@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import polars as pl
 from polars.plugins import register_plugin_function
@@ -58,3 +58,26 @@ def geometric_weighted_damerau_levenshtein(expr: IntoExprColumn, other: IntoExpr
             "normalized": normalized,
         },
     )
+
+
+def geometric_weighted_damerau_levenshtein_bywords(expr: IntoExprColumn,
+    other: IntoExprColumn,
+    weighted_geometric_ratio: float = 1.0,
+    normalized: bool = False,
+    agg: Literal["max", "min", "mean"] = "mean",
+) -> pl.Expr:
+    if agg not in ("max", "min", "mean"):
+        raise ValueError("agg must be one of 'max', 'min', 'mean'.")
+    return register_plugin_function(
+        plugin_path=LIB,
+        args=[expr, other],
+        function_name="geometric_weighted_damerau_levenshtein_bywords",
+        is_elementwise=True,
+        kwargs={
+            "weighted_geometric_ratio": weighted_geometric_ratio,
+            "normalized": normalized,
+            "agg": agg,
+        },
+    )
+
+

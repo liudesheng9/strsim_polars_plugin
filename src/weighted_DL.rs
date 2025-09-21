@@ -1,6 +1,13 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
+#[derive(Clone, Copy)]
+pub enum ByWordsAggregation {
+    Max,
+    Mean,
+    Min,
+}
+
 /* Returns the final index for a value in a single vector that represents a fixed
 grid */
 fn flat_index(i: usize, j: usize, width: usize) -> usize {
@@ -185,5 +192,58 @@ pub fn normalized_descending_weighted_damerau_levenshtein(
             result / max_len as f64
         }
         false => generic_weighted_damerau_levenshtein(&a_chars, &b_chars, &weight_a, &weight_b),
+    }
+}
+
+/// Calculates the Damerau-Levenshtein distance between two strings on a word-by-word basis.
+///
+/// This function splits the input strings `a` and `b` into words, based on whitespace.
+/// It then performs a positional comparison, matching the first word of the shorter list
+/// with the first word of the longer list, the second with the second, and so on.
+///
+/// For each pair of words, it computes the `normalized_descending_weighted_damerau_levenshtein`
+/// distance. Finally, it aggregates these distances into a single `f64` value using the
+/// method specified by the `agg` parameter.
+///
+/// # Arguments
+///
+/// * `a` - The first string.
+/// * `b` - The second string.
+/// * `k` - The geometric ratio for weighted Damerau-Levenshtein.
+/// * `normalized` - If true, the distance for each word pair is normalized by word length.
+/// * `agg` - The aggregation method (`Max`, `Mean`, or `Min`) to combine word-level distances.
+///
+/// # Returns
+///
+/// A single `f64` representing the aggregated distance. Returns `0.0` if either input
+/// string is empty or contains no words.
+pub fn normalized_descending_weighted_damerau_levenshtein_bywords(
+    a: &str,
+    b: &str,
+    k: f64,
+    normalized: bool,
+    agg: ByWordsAggregation,
+) -> f64 {
+    let a_words: Vec<&str> = a.split_whitespace().collect();
+    let b_words: Vec<&str> = b.split_whitespace().collect();
+
+    if a_words.is_empty() || b_words.is_empty() {
+        return 0.0;
+    }
+
+    let (shorter, longer) = if a_words.len() < b_words.len() {
+        (a_words, b_words)
+    } else {
+        (b_words, a_words)
+    };
+
+    let distances = (0..shorter.len()).map(|i| {
+        normalized_descending_weighted_damerau_levenshtein(shorter[i], longer[i], k, normalized)
+    });
+
+    match agg {
+        ByWordsAggregation::Max => distances.fold(f64::NEG_INFINITY, f64::max),
+        ByWordsAggregation::Mean => distances.sum::<f64>() / shorter.len() as f64,
+        ByWordsAggregation::Min => distances.fold(f64::INFINITY, f64::min),
     }
 }
